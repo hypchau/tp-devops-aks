@@ -61,3 +61,49 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: APP_VERSION=${{ github.sha }}
+
+  deploiement:
+    name: Déploiement sur AKS
+    needs: image
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploiement-aks
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - name: Installer kubectl
+        run: |
+          curl -fsSL -o /tmp/kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install -o root -g root -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+          kubectl version --client
+      - name: Configurer l'accès au cluster
+        env:
+          KUBECONFIG_CONTENU: ${{ secrets.KUBECONFIG }}
+        run: |
+          mkdir -p ~/.kube
+          printf '%s\n' "$KUBECONFIG_CONTENU" > ~/.kube/config
+          chmod 600 ~/.kube/config
+          kubectl auth can-i create deployments
+      - name: Déployer
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:sha-${GITHUB_SHA::7}"
+          echo "Déploiement de $IMAGE"
+          sed -i -E "s|^(\s*image:\s*).*$|\1${IMAGE}|" k8s/deployment.yaml
+          grep -n "image:" k8s/deployment.yaml
+          kubectl apply -f k8s/
+          kubectl rollout status deployment/mon-app --timeout=180s
+          kubectl exec deploy/mon-app -- printenv APP_VERSION
+      - name: Test post-déploiement
+        if: ${{ !contains(vars.APP_HOST, 'A-REMPLACER') }}
+        run: |
+          URL="http://${{ vars.APP_HOST }}"
+          curl --fail -sS --retry 10 --retry-delay 3 --retry-all-errors "$URL/health"
+          for i in $(seq 1 10); do
+            VERSION=$(curl -fsS "$URL/" | jq -r .version)
+            echo "Version servie : $VERSION (attendue : $GITHUB_SHA)"
+            [ "$VERSION" = "$GITHUB_SHA" ] && exit 0
+            sleep 3
+          done
+          echo "::error::La version déployée ne correspond pas au commit $GITHUB_SHA"
+          exit 1
