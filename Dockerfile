@@ -1,0 +1,24 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin appuser
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app.py calendrier.py ./
+
+# Version de l'application injectée au build (utile en Partie 3)
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION}
+
+USER 10001
+
+EXPOSE 8080
+
+# Commande de démarrage fournie par l'équipe d'exploitation
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "app:app"]
