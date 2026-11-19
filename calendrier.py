@@ -3,4 +3,4 @@
 
 def est_bissextile(annee: int) -> bool:
     """Renvoie True si l'année est bissextile (calendrier grégorien)."""
-    return annee % 4 == 0 and (annee % 100 != 0 or annee % 400 == 0)
+    return annee % 4 == 0 and (annee % 100 != 0)
