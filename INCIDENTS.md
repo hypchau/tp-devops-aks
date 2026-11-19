@@ -20,3 +20,12 @@
 - **Cause racine :** le modèle de l'équipe déclenche le workflow sur les push vers `master`, alors que le dépôt utilise `main`. Le push produit par la fusion ne correspond à aucun déclencheur.
 - **Correction appliquée :** `branches: [main]` dans `.github/workflows/ci-cd.yml` (commit `fix(ci): déclencher le pipeline sur main`).
 - **Comment l'éviter à l'avenir :** relire les déclencheurs `on:` en revue de code et vérifier le nom réel de la branche par défaut. Protéger `main` en exigeant le statut « Qualité et tests » (bonus B1).
+
+## Incident n°3 : pods en CrashLoopBackOff (OOMKilled)
+
+- **Partie / étape :** Partie 4, étape 4.2 (Deployment avec les ressources imposées 16Mi / 32Mi)
+- **Symptôme observé :** `kubectl get pods -w` montre les pods `mon-app-79cfc4c489-fn5tv` et `mon-app-79cfc4c489-6th5g` passer de `OOMKilled` à `CrashLoopBackOff` en moins de 10 s, toujours `0/1`, avec 3 redémarrages en 70 s.
+- **Diagnostic :** le statut `OOMKilled` indique que le noyau a tué le conteneur pour dépassement de sa limite mémoire (`kubectl describe pod` → `Reason: OOMKilled, Exit Code: 137` = SIGKILL). Limite déclarée : `limits.memory: 32Mi`. Mesure locale de gunicorn (1 maître + 2 workers) : environ 89 Mi.
+- **Cause racine :** les ressources imposées (`requests 16Mi`, `limits 32Mi`) sont inférieures à la consommation réelle de l'application dès son démarrage. L'OOM killer du cgroup tue le conteneur, que le kubelet redémarre avec un délai croissant (CrashLoopBackOff).
+- **Correction appliquée :** `requests.memory: 64Mi` et `limits.memory: 128Mi` (CPU inchangé). Résultat : ReplicaSet `mon-app-6c8b7b9cc8`, 2 pods `1/1 Running`, 0 restart. Compatible avec le quota (1Gi / 64Mi = 16 pods, au-dessus de la limite de 10 pods). Commit `feat: manifestes Kubernetes`.
+- **Comment l'éviter à l'avenir :** dimensionner requests et limits à partir de mesures (`kubectl top pods`) et tester en local avec la même contrainte (`docker run --memory=32m`).
